@@ -7,8 +7,8 @@ waybar::Factory::Factory(Bar& bar, const Json::Value& config)
 waybar::IModule* waybar::Factory::makeModule(const std::string &name) const
 {
   try {
-    if (name == "battery") {
-      return new waybar::modules::Battery(config_[name]);
+    if (name.compare(0, 7, "battery") == 0) {
+      return new waybar::modules::Battery(name, config_[name]);
     }
     #ifdef HAVE_SWAY
     if (name == "sway/workspaces") {

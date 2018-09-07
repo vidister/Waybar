@@ -1,6 +1,6 @@
 #include "modules/battery.hpp"
 
-waybar::modules::Battery::Battery(const Json::Value& config)
+waybar::modules::Battery::Battery(const std::string name, const Json::Value& config)
   : ALabel(config, "{capacity}%")
 {
   try {
@@ -24,7 +24,7 @@ waybar::modules::Battery::Battery(const Json::Value& config)
     inotify_add_watch(fd_, (bat / "uevent").c_str(), IN_ACCESS);
   }
   label_.set_name("battery");
-  worker();
+  worker(name);
 }
 
 waybar::modules::Battery::~Battery()
@@ -32,10 +32,10 @@ waybar::modules::Battery::~Battery()
   close(fd_);
 }
 
-void waybar::modules::Battery::worker()
+void waybar::modules::Battery::worker(const std::string name)
 {
   // Trigger first values
-  update();
+  update(name);
   thread_ = [this] {
     struct inotify_event event = {0};
     int nbytes = read(fd_, &event, sizeof(event));
@@ -46,36 +46,61 @@ void waybar::modules::Battery::worker()
   };
 }
 
-auto waybar::modules::Battery::update() -> void
+auto waybar::modules::Battery::update(std::string name) -> void
 {
   try {
-    uint16_t total = 0;
-    std::string status;
-    for (auto &bat : batteries_) {
-      uint16_t capacity;
-      std::string _status;
-      std::ifstream(bat / "capacity") >> capacity;
-      std::ifstream(bat / "status") >> _status;
-      if (_status != "Unknown") {
-        status = _status;
+    if (name == "battery") { // Combine all batteries
+      uint16_t total = 0;
+      std::string status;
+      for (auto &bat : batteries_) {
+        uint16_t capacity;
+        std::string _status;
+        std::ifstream(bat / "capacity") >> capacity;
+        std::ifstream(bat / "status") >> _status;
+        if (_status != "Unknown") {
+          status = _status;
+        }
+        total += capacity;
       }
-      total += capacity;
-    }
-    uint16_t capacity = total / batteries_.size();
-    label_.set_text(fmt::format(format_, fmt::arg("capacity", capacity),
-      fmt::arg("icon", getIcon(capacity))));
-    label_.set_tooltip_text(status);
-    bool charging = status == "Charging";
-    if (charging) {
-      label_.get_style_context()->add_class("charging");
-    } else {
-      label_.get_style_context()->remove_class("charging");
-    }
-    auto critical = config_["critical"] ? config_["critical"].asUInt() : 15;
-    if (capacity <= critical && !charging) {
-      label_.get_style_context()->add_class("warning");
-    } else {
-      label_.get_style_context()->remove_class("warning");
+
+      uint16_t capacity = total / batteries_.size();
+      label_.set_text(fmt::format(format_, fmt::arg("capacity", capacity),
+        fmt::arg("icon", getIcon(capacity))));
+      label_.set_tooltip_text(status);
+      bool charging = status == "Charging";
+      if (charging) {
+        label_.get_style_context()->add_class("charging");
+      } else {
+        label_.get_style_context()->remove_class("charging");
+      }
+      auto critical = config_["critical"] ? config_["critical"].asUInt() : 15;
+      if (capacity <= critical && !charging) {
+        label_.get_style_context()->add_class("warning");
+      } else {
+        label_.get_style_context()->remove_class("warning");
+      }
+    } else { // Display only one battery
+      int batid = std::stoi(name.erase(0, 7));
+      std::string status;
+      uint16_t capacity;
+      std::ifstream(batteries_[batid] / "capacity") >> capacity;
+      std::ifstream(batteries_[batid] / "status") >> status;
+
+      label_.set_text(fmt::format(format_, fmt::arg("capacity", capacity),
+        fmt::arg("icon", getIcon(capacity))));
+      label_.set_tooltip_text(status);
+      bool charging = status == "Charging";
+      if (charging) {
+        label_.get_style_context()->add_class("charging");
+      } else {
+        label_.get_style_context()->remove_class("charging");
+      }
+      auto critical = config_["critical"] ? config_["critical"].asUInt() : 15;
+      if (capacity <= critical && !charging) {
+        label_.get_style_context()->add_class("warning");
+      } else {
+        label_.get_style_context()->remove_class("warning");
+      }
     }
   } catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;
